@@ -1,0 +1,55 @@
+name: Verify durable kernel
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  kernel:
+    name: Core checks and durable recovery tests
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.19.0
+          cache: npm
+      - run: corepack enable
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm test
+
+  real-dsh:
+    name: Real DeepSeek Harness composition
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.19.0
+          cache: npm
+      - run: corepack enable
+      - run: npm ci
+      - run: npm run build
+      - name: Fetch the source-locked DSH checkout
+        env:
+          DSH_DIR: ${{ runner.temp }}/deepseek-harness
+          DSH_COMMIT: b150a551b8d465e31e418e1b2eaf5e79bbb7d28e
+        run: |
+          git init "$DSH_DIR"
+          git -C "$DSH_DIR" remote add origin https://github.com/deepseek-ai/deepseek-harness.git
+          git -C "$DSH_DIR" fetch --depth=1 origin "$DSH_COMMIT"
+          git -C "$DSH_DIR" checkout --detach FETCH_HEAD
+          test "$(git -C "$DSH_DIR" rev-parse HEAD)" = "$DSH_COMMIT"
+          cd "$DSH_DIR"
+          corepack pnpm@11.7.0 install --frozen-lockfile
+      - name: Run real Cordis and DSH lifecycle composition
+        env:
+          DSH_CHECKOUT: ${{ runner.temp }}/deepseek-harness
+        run: npm run test:dsh

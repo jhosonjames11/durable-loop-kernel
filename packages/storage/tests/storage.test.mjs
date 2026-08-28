@@ -151,6 +151,70 @@ test('recovery verifies a head checkpoint, durably pauses uncertainty, and is id
   const recovery = new RecoveryCoordinator(store); const result = recovery.recover({ runId: RUN_ID, lease, actor: 'recovery-worker', eventId: 'recovery-event-1', occurredAt: '2026-08-25T00:01:00.000Z', reasonCode: 'RECOVERY_UNCERTAIN' }); assert.equal(result.checkpointUsed, true); assert.equal(result.recovered, true); assert.equal(result.view.phase, 'PAUSED_RECOVERED');
 });
 
+test('fault-injection matrix pauses every uncertain external boundary without auto-dispatch', async (t) => {
+  const candidate = loopSpec(2);
+  const fixtures = [
+    {
+      name: 'admission-hitl', expectedResumePhase: 'READY',
+      events: [created({ payload: { loopSpec: loopSpec(1), requiresHitl: true } }), event(2, 'admission.hitl.requested', { requestId: 'admission-2', reasonCode: 'DSH_PROMOTION' })],
+    },
+    { name: 'dispatch-requested', expectedResumePhase: 'READY', events: [created(), dispatched()] },
+    { name: 'execution-started', expectedResumePhase: 'READY', events: [created(), dispatched(), event(3, 'node.started', { nodeId: 'build', attemptId: 'attempt-1' })] },
+    {
+      name: 'validator-pending', expectedResumePhase: 'READY',
+      events: [created(), dispatched(), event(3, 'node.started', { nodeId: 'build', attemptId: 'attempt-1' }), event(4, 'node.settled', { nodeId: 'build', attemptId: 'attempt-1', outcome: 'SUCCEEDED', outcomeCode: 'SETTLED' })],
+    },
+    {
+      name: 'pause-requested-during-execution', expectedResumePhase: 'READY',
+      events: [created(), dispatched(), event(3, 'node.started', { nodeId: 'build', attemptId: 'attempt-1' }), event(4, 'pause.requested', { reasonCode: 'OPERATOR_PAUSE' })],
+    },
+    {
+      name: 'promotion-hitl-pending', expectedResumePhase: 'VALIDATED',
+      events: [
+        created({ payload: { loopSpec: loopSpec(1), requiresHitl: true } }),
+        dispatched(), event(3, 'node.started', { nodeId: 'build', attemptId: 'attempt-1' }),
+        event(4, 'node.settled', { nodeId: 'build', attemptId: 'attempt-1', outcome: 'SUCCEEDED', outcomeCode: 'SETTLED' }),
+        event(5, 'validation.recorded', { nodeId: 'build', attemptId: 'attempt-1', validationId: 'validation-5', passed: true, evidenceRef: 'evidence:5' }),
+        event(6, 'generation.prepared', { generationId: 'generation-1', validationId: 'validation-5', manifestRef: 'manifest:1', candidateLoopSpec: candidate }),
+        event(7, 'hitl.requested', { requestId: 'hitl-7', promptRef: 'prompt:1', generationId: 'generation-1', specId: candidate.specId, specRevision: candidate.revision, validationId: 'validation-5', candidateLoopSpec: candidate }),
+      ],
+    },
+  ];
+
+  for (const fixture of fixtures) {
+    const directory = await temporaryDirectory(`loopgraph-crash-${fixture.name}-`);
+    t.after(() => rm(directory, { recursive: true, force: true }));
+    const store = new SqliteRunStore({ filename: join(directory, 'runs.sqlite'), clock: () => 1_000 });
+    t.after(() => store.close());
+    const lease = store.acquire(RUN_ID, 'worker-a', 100); assert.ok(lease);
+    for (const item of fixture.events) store.append(item, lease);
+    store.saveCheckpoint({ runId: RUN_ID, revision: fixture.events.length, view: reduce(store.read(RUN_ID)) });
+
+    const recovery = new RecoveryCoordinator(store);
+    const first = recovery.recover({
+      runId: RUN_ID, lease, actor: 'recovery-worker', eventId: `recovery-${fixture.name}`,
+      occurredAt: '2026-08-25T00:01:00.000Z', reasonCode: `CRASH_${fixture.name.toUpperCase().replaceAll('-', '_')}`,
+    });
+    assert.equal(first.checkpointUsed, true, `${fixture.name} replay must validate the checkpoint`);
+    assert.equal(first.recovered, true, `${fixture.name} must append one recovery fact`);
+    assert.equal(first.view.phase, 'PAUSED_RECOVERED', `${fixture.name} must fail closed`);
+    assert.equal(first.view.activeAttempt, null, `${fixture.name} cannot retain a live callback`);
+    assert.equal(first.view.hitl.status, 'NOT_REQUESTED', `${fixture.name} cannot retain a pending promotion authority`);
+    assert.equal(store.read(RUN_ID).filter(({ type }) => type === 'node.dispatch.requested').length,
+      fixture.events.filter(({ type }) => type === 'node.dispatch.requested').length,
+      `${fixture.name} recovery must never auto-dispatch`);
+
+    const second = recovery.recover({
+      runId: RUN_ID, lease, actor: 'recovery-worker', eventId: `recovery-repeat-${fixture.name}`,
+      occurredAt: '2026-08-25T00:01:01.000Z', reasonCode: 'REPEAT_RECOVERY',
+    });
+    assert.equal(second.recovered, false, `${fixture.name} recovery is idempotent`);
+    const resumed = event(store.read(RUN_ID).length + 1, 'run.resumed', { reasonCode: 'OPERATOR_RESUME' });
+    store.append(resumed, lease);
+    assert.equal(reduce(store.read(RUN_ID)).phase, fixture.expectedResumePhase, `${fixture.name} needs an explicit resume`);
+  }
+});
+
 // Filesystem boundary, durability and limits.
 test('artifact bytes and manifests fail closed on blob tampering and manifest-only publication', async (t) => {
   const directory = await temporaryDirectory('loopgraph-artifacts-'); t.after(() => rm(directory, { recursive: true, force: true })); const artifacts = new FileArtifactStore(directory);

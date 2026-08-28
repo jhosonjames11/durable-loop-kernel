@@ -462,7 +462,12 @@ export function reduce(events: readonly RunEvent[]): RunView {
           admissionHitl: view.admissionHitl.status === 'PENDING'
             ? { status: 'NOT_REQUESTED', requestId: null }
             : view.admissionHitl,
-          hitl: lostAttempt || lostValidation ? emptyHitl : view.hitl,
+          // A post-validation approval request is another external operation.
+          // Its answer might have been delivered while this process was down,
+          // so discard its pending authority rather than accepting a late old
+          // decision after recovery. The already prepared immutable candidate
+          // remains available for an explicitly requested fresh approval.
+          hitl: lostAttempt || lostValidation || view.hitl.status === 'PENDING' ? emptyHitl : view.hitl,
           pauseRequested: false,
           recoveryReasonCode: event.payload.reasonCode,
         };

@@ -6,10 +6,11 @@ approval service. It does not implement, import, or own an agent loop.
 
 ## Compatibility and real composition test
 
-The adapter is source-compatible with DeepSeek Harness checkout commit
-`b150a551b8d465e31e418e1b2eaf5e79bbb7d28e` (the `0.1.1-rc.2` workspace
-packages used by that checkout). It is intentionally built without DSH runtime
-dependencies; the host supplies Cordis and DSH services.
+The adapter is source-compatible with the exact DeepSeek Harness source lock in
+[`dsh-source.lock.json`](../../dsh-source.lock.json): commit
+`b150a551b8d465e31e418e1b2eaf5e79bbb7d28e`, workspace version `0.1.1-rc.2`,
+and `pnpm@11.7.0`. It is intentionally built without DSH runtime dependencies;
+the host supplies Cordis and DSH services.
 
 Run the genuine composition test against an installed checkout:
 
@@ -17,15 +18,17 @@ Run the genuine composition test against an installed checkout:
 # Default checkout: ../deepseek-harness relative to this repository
 npm run test:dsh
 
-# Or test an installed checkout explicitly (its actual revision is reported)
+# Or locate the same source-locked checkout elsewhere
 DSH_CHECKOUT=/absolute/path/to/deepseek-harness npm run test:dsh
 ```
 
-The default sibling checkout is required to be exactly the pinned revision above;
-an explicit `DSH_CHECKOUT` is an opt-in compatibility probe whose actual short
-revision is printed with the test result. The command fails rather than skipping
-when that checkout, its `node_modules`, its `tsx` launcher, or its Git revision
-is unavailable. The test composes real `Context`, `AgentRegistry`,
+Both forms require the exact source lock: repository origin, full Git revision,
+DSH workspace version, and package manager are checked before test execution.
+`DSH_CHECKOUT` selects a directory only; it cannot silently substitute a newer
+or older Harness. The command fails rather than skipping when that checkout,
+its `node_modules`, its `tsx` launcher, or its lock identity is unavailable.
+GitHub Actions independently fetches the locked object and runs this command.
+The test composes real `Context`, `AgentRegistry`,
 `ApprovalService`, `AgentLoop`, and a scripted LLM adapter. `AgentLoop` is
 test-only; production source is checked to ensure it does not import it.
 

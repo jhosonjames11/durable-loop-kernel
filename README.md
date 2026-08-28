@@ -67,7 +67,10 @@ Every `run.created` event explicitly declares `requiresHitl`. A configured gate 
 An adapter exception after `node.started` records no invented completion. On
 restart it becomes `recovery.uncertain` and the run remains `PAUSED_RECOVERED`;
 there is no automatic retry of an operation whose external outcome is unknown.
-Only an explicit later `run.resumed` plus a new dispatch can attempt work again.
+An unresolved admission or promotion HITL request is also discarded at recovery:
+the immutable candidate stays prepared, but a new authenticated approval request
+must be made after an explicit resume. Only an explicit later `run.resumed` plus
+a new dispatch can attempt work again.
 
 ## Mock-harness durable E2E
 
@@ -138,10 +141,14 @@ claiming a crash-durable publication. Defaults bound individual artifacts to
 store-named temp files older than one hour are cleaned at initialization.
 
 The repository pins its own toolchain in `package-lock.json`. The DSH adapter
-has no runtime DSH dependency by design; its real integration launcher enforces
-the audited DSH source commit for the default checkout rather than substituting
-a fake client. Run `npm run typecheck`, `npm run lint`, `npm test`, and
-`npm run test:dsh` (with the pinned checkout installed) as separate evidence.
+has no runtime DSH dependency by design; `dsh-source.lock.json` pins the DSH
+repository, full commit, workspace version, and package manager. Its real
+integration launcher verifies all four for every `DSH_CHECKOUT`; an override
+chooses only the checkout location, never a different DSH version. GitHub
+Actions fetches that exact object, installs it with `pnpm --frozen-lockfile`,
+and runs the real Cordis composition test separately from the core checks.
+Run `npm run typecheck`, `npm run lint`, `npm test`, and `npm run test:dsh`
+(with the source-locked checkout installed) as separate evidence.
 
 ## Repository layout (target)
 

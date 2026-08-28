@@ -591,6 +591,38 @@ test('recovery invalidates an unresolved validator and returns an explicit resum
   assert.equal(resumed.phase, 'READY');
 });
 
+test('recovery invalidates a pending promotion approval so a late old decision cannot promote', () => {
+  const candidate = loopSpec(2);
+  const pending = [
+    created({ payload: { loopSpec: loopSpec(1), requiresHitl: true } }),
+    ...executionEvents(),
+    passedValidation(5),
+    event(6, 'generation.prepared', {
+      generationId: 'generation-recovery-1', validationId: 'validation-5', manifestRef: 'manifest:recovery-1',
+      candidateLoopSpec: candidate,
+    }),
+    event(7, 'hitl.requested', {
+      requestId: 'hitl-recovery-7', promptRef: 'prompt:recovery-1', generationId: 'generation-recovery-1',
+      specId: candidate.specId, specRevision: candidate.revision, validationId: 'validation-5', candidateLoopSpec: candidate,
+    }),
+    event(8, 'recovery.uncertain', { reasonCode: 'PROCESS_RESTARTED_DURING_PROMOTION_HITL' }),
+  ];
+  const recovered = reduce(pending);
+  assert.equal(recovered.phase, 'PAUSED_RECOVERED');
+  assert.equal(recovered.validation.status, 'PASSED');
+  assert.equal(recovered.hitl.status, 'NOT_REQUESTED');
+  const resumed = reduce([...pending, event(9, 'run.resumed', { reasonCode: 'OPERATOR_RESUME' })]);
+  assert.equal(resumed.phase, 'VALIDATED');
+  expectError(ReducerErrorCode.ILLEGAL_TRANSITION, 10, () => reduce([
+    ...pending,
+    event(9, 'run.resumed', { reasonCode: 'OPERATOR_RESUME' }),
+    event(10, 'hitl.decided', {
+      requestId: 'hitl-recovery-7', decision: 'APPROVED', decisionCode: 'LATE_OLD_DECISION',
+      approvalSubject: 'user:late', approvalReceiptRef: 'receipt:late',
+    }),
+  ]));
+});
+
 test('rejects every major malformed or conflicting stream at the offending sequence', () => {
   expectError(ReducerErrorCode.EMPTY_EVENT_STREAM, null, () => reduce([]));
   expectError(ReducerErrorCode.INVALID_EVENT_VERSION, 1, () => reduce([created({ version: 99 })]));
