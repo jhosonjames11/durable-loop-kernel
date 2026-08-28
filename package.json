@@ -1,0 +1,23 @@
+{
+  "name": "loopgraph-supervisor",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Harness-neutral supervisor for durable agent loops.",
+  "engines": {
+    "node": ">=22"
+  },
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "tsc --build packages/core/tsconfig.build.json packages/storage/tsconfig.build.json packages/dsh-adapter/tsconfig.build.json packages/demo/tsconfig.build.json packages/cli/tsconfig.build.json",
+    "typecheck": "npm run build && tsc --project tsconfig.json --noEmit",
+    "test": "npm run build && node --test packages/*/tests/*.test.mjs",
+    "test:demo": "npm run build && node --test packages/demo/tests/*.test.mjs",
+    "test:dsh": "node scripts/test-dsh.mjs",
+    "lint": "node scripts/lint.mjs && node scripts/core-import-boundary.mjs"
+  },
+  "devDependencies": {
+    "typescript": "6.0.3"
+  }
+}

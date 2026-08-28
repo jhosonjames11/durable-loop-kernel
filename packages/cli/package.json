@@ -1,0 +1,17 @@
+{
+  "name": "@loopgraph/cli",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "loopgraph": "./dist/index.js"
+  },
+  "exports": {
+    ".": "./dist/index.js"
+  },
+  "types": "./dist/index.d.ts",
+  "dependencies": {
+    "@loopgraph/core": "file:../core",
+    "@loopgraph/storage": "file:../storage"
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "name": "@loopgraph/storage",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./dist/index.js"
+  },
+  "types": "./dist/index.d.ts",
+  "dependencies": {
+    "@loopgraph/core": "file:../core"
+  }
+}
